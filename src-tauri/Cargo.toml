@@ -1,0 +1,36 @@
+[package]
+name = "heic-converter"
+version = "0.1.0"
+description = "HEIC to JPG Converter — no dependencies required"
+authors = []
+edition = "2021"
+
+[lib]
+name = "heic_converter_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "heic-converter"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HEIC decoding via libheif
+libheif-rs = "1"
+
+# JPEG encoding (pure Rust)
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

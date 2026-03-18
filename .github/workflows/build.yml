@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'          # v1.0.0 のようなタグをプッシュしたときにビルド
+  workflow_dispatch:  # GitHub画面から手動実行も可能
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+          - os: windows-latest
+            label: Windows
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.label }})
+
+    steps:
+      # ── ソースを取得 ──────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Node.js ───────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ── Rust ──────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # ── libheif (macOS) ───────────────────────────
+      - name: Install libheif (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install cmake pkg-config libheif
+
+      # ── libheif (Windows) — vcpkg ─────────────────
+      - name: Install libheif (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          vcpkg install libheif:x64-windows
+          echo "LIBHEIF_DIR=C:/vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
+
+      # ── npm install ───────────────────────────────
+      - name: Install npm dependencies
+        run: npm install
+
+      # ── Tauri ビルド ──────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 成果物をアップロード (macOS) ──────────────
+      - name: Upload macOS artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEIC-Converter-macOS
+          path: |
+            src-tauri/target/release/bundle/macos/*.app
+            src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      # ── 成果物をアップロード (Windows) ────────────
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEIC-Converter-Windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
