@@ -742,11 +742,7 @@ window.onunhandledrejection = (e) => {
     d.style.textDecoration = 'underline';
     d.textContent = label;
     d.addEventListener('click', () => {
-      // Tauri v2: ローカルフォルダをFinderで開く
-      invoke('plugin:opener|open_path', { path: dirPath }).catch(() => {
-        // フォールバック: shell経由
-        invoke('plugin:shell|open', { path: 'file://' + dirPath });
-      });
+      invoke('open_folder', { path: dirPath });
     });
     logEl.appendChild(d);
     logEl.scrollTop = logEl.scrollHeight;

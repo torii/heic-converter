@@ -74,6 +74,23 @@ fn convert_one(input_path: &str, output_dir: &str, quality: u8) -> Result<String
 }
 
 #[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn convert_heic(input_path: String, output_dir: String, quality: u8) -> ConvertResult {
     let name = Path::new(&input_path)
         .file_name()
@@ -101,7 +118,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![convert_heic])
+        .invoke_handler(tauri::generate_handler![convert_heic, open_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
