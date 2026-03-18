@@ -503,29 +503,28 @@
 
 <script type="module">
   const { invoke } = window.__TAURI__.core;
-  const { open: dialogOpen } = window.__TAURI__.dialog;
 
   // ── State ──────────────────────────────────────────
-  let files = [];       // { path, name, status: 'pending'|'running'|'done'|'error' }
+  let files = [];
   let busy  = false;
 
   // ── Elements ───────────────────────────────────────
-  const dz          = document.getElementById('dz');
-  const btnPick     = document.getElementById('btn-pick');
-  const btnClear    = document.getElementById('btn-clear');
-  const btnGo       = document.getElementById('btn-go');
-  const listHeader  = document.getElementById('list-header');
-  const listScroll  = document.getElementById('list-scroll');
-  const listCount   = document.getElementById('list-count');
-  const fileRows    = document.getElementById('file-rows');
-  const qSlider     = document.getElementById('q-slider');
-  const qNum        = document.getElementById('q-num');
-  const sTotal      = document.getElementById('s-total');
-  const sDone       = document.getElementById('s-done');
-  const sErr        = document.getElementById('s-err');
-  const prog        = document.getElementById('prog');
-  const logEl       = document.getElementById('log');
-  const toast       = document.getElementById('toast');
+  const dz         = document.getElementById('dz');
+  const btnPick    = document.getElementById('btn-pick');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnGo      = document.getElementById('btn-go');
+  const listHeader = document.getElementById('list-header');
+  const listScroll = document.getElementById('list-scroll');
+  const listCount  = document.getElementById('list-count');
+  const fileRows   = document.getElementById('file-rows');
+  const qSlider    = document.getElementById('q-slider');
+  const qNum       = document.getElementById('q-num');
+  const sTotal     = document.getElementById('s-total');
+  const sDone      = document.getElementById('s-done');
+  const sErr       = document.getElementById('s-err');
+  const prog       = document.getElementById('prog');
+  const logEl      = document.getElementById('log');
+  const toast      = document.getElementById('toast');
 
   // ── Quality slider ─────────────────────────────────
   qSlider.addEventListener('input', () => {
@@ -535,17 +534,31 @@
   // ── Drag & drop ────────────────────────────────────
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('over'));
-  dz.addEventListener('drop', e => {
-    e.preventDefault();
-    dz.classList.remove('over');
-    const dropped = Array.from(e.dataTransfer.files)
-      .filter(f => f.name.toLowerCase().endsWith('.heic'));
-    addFileObjects(dropped);
-  });
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); });
+
+  // Tauri v2 ネイティブD&D
+  try {
+    const { getCurrentWindow } = window.__TAURI__.window;
+    await getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        dz.classList.add('over');
+      } else if (event.payload.type === 'drop') {
+        dz.classList.remove('over');
+        const paths = (event.payload.paths || [])
+          .filter(p => p.toLowerCase().endsWith('.heic'));
+        if (paths.length) addPaths(paths);
+      } else {
+        dz.classList.remove('over');
+      }
+    });
+  } catch(e) {
+    console.warn('onDragDropEvent unavailable:', e);
+  }
 
   // ── File picker ────────────────────────────────────
   btnPick.addEventListener('click', async () => {
     try {
+      const { open: dialogOpen } = window.__TAURI__.dialog;
       const sel = await dialogOpen({
         multiple: true,
         filters: [{ name: 'HEIC Images', extensions: ['heic', 'HEIC'] }]
@@ -553,8 +566,8 @@
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
       addPaths(paths);
-    } catch {
-      // Tauri dialog unavailable in dev mode — ignore
+    } catch(e) {
+      addLog('ダイアログエラー: ' + e, 'err');
     }
   });
 
@@ -563,15 +576,6 @@
     const fresh = paths
       .filter(p => !files.find(f => f.path === p))
       .map(p => ({ path: p, name: p.replace(/.*[\\/]/, ''), status: 'pending' }));
-    files.push(...fresh);
-    render();
-  }
-
-  function addFileObjects(fobjs) {
-    // Web File objects (drag-drop fallback — path may not be available on all platforms)
-    const fresh = fobjs
-      .filter(f => !files.find(x => x.name === f.name))
-      .map(f => ({ path: f.path || f.name, name: f.name, status: 'pending' }));
     files.push(...fresh);
     render();
   }
@@ -590,12 +594,9 @@
     const hasFiles = files.length > 0;
     listHeader.style.display = hasFiles ? 'flex' : 'none';
     listScroll.style.display = hasFiles ? 'block' : 'none';
-    dz.style.flexShrink     = hasFiles ? '0' : '';
-    // shrink drop zone height when files exist
-    dz.style.minHeight = hasFiles ? '120px' : '';
-    dz.style.flex      = hasFiles ? '0 0 120px' : '1';
+    dz.style.flex = hasFiles ? '0 0 120px' : '1';
 
-    listCount.textContent = `${files.length} ファイル`;
+    listCount.textContent = files.length + ' ファイル';
     sTotal.textContent    = files.length;
     btnGo.disabled        = !hasFiles || busy;
 
@@ -612,40 +613,35 @@
   }
 
   function icon(s) {
-    return s === 'pending' ? '○'
-         : s === 'running' ? '↻'
-         : s === 'done'    ? '✓'
-         : '✗';
+    return s === 'pending' ? '○' : s === 'running' ? '↻' : s === 'done' ? '✓' : '✗';
   }
 
   function setStatus(i, s) {
     files[i].status = s;
-    const el = document.getElementById(`st-${i}`);
-    if (el) { el.className = `file-st ${s}`; el.textContent = icon(s); }
+    const el = document.getElementById('st-' + i);
+    if (el) { el.className = 'file-st ' + s; el.textContent = icon(s); }
   }
 
   // ── Convert ────────────────────────────────────────
   btnGo.addEventListener('click', async () => {
     if (busy || files.length === 0) return;
     busy = true;
-    btnGo.disabled   = true;
+    btnGo.disabled    = true;
     btnGo.textContent = '変換中...';
     clearLog();
     resetStats();
 
     const quality = parseInt(qSlider.value);
     let done = 0, errs = 0;
-
-    addLog(`変換開始 — ${files.length}ファイル / 品質${quality}%`, 'info');
+    addLog('変換開始 — ' + files.length + 'ファイル / 品質' + quality + '%', 'info');
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       setStatus(i, 'running');
 
-      // Output dir = same folder as input + /jpg_output
-      const sep = f.path.includes('\\') ? '\\' : '/';
-      const dir = f.path.includes(sep)
-        ? f.path.substring(0, f.path.lastIndexOf(sep))
+      const sep  = f.path.includes('\\') ? '\\' : '/';
+      const dir  = f.path.includes('/') || f.path.includes('\\')
+        ? f.path.substring(0, Math.max(f.path.lastIndexOf('/'), f.path.lastIndexOf('\\')))
         : '.';
       const outputDir = dir + sep + 'jpg_output';
 
@@ -655,27 +651,22 @@
           outputDir,
           quality,
         });
-
         if (res.success) {
-          setStatus(i, 'done');
-          done++;
-          addLog(`✓ ${f.name}`, 'ok');
+          setStatus(i, 'done'); done++;
+          addLog('✓ ' + f.name, 'ok');
         } else {
-          setStatus(i, 'error');
-          errs++;
-          addLog(`✗ ${f.name}: ${res.error ?? '不明なエラー'}`, 'err');
+          setStatus(i, 'error'); errs++;
+          addLog('✗ ' + f.name + ': ' + (res.error || '不明なエラー'), 'err');
         }
       } catch(e) {
-        setStatus(i, 'error');
-        errs++;
-        addLog(`✗ ${f.name}: ${e}`, 'err');
+        setStatus(i, 'error'); errs++;
+        addLog('✗ ' + f.name + ': ' + e, 'err');
       }
 
       sDone.textContent = done;
       sErr.textContent  = errs;
-      prog.style.width  = `${((i + 1) / files.length) * 100}%`;
-      // scroll file into view
-      document.getElementById(`row-${i}`)?.scrollIntoView({ block: 'nearest' });
+      prog.style.width  = ((i + 1) / files.length * 100) + '%';
+      document.getElementById('row-' + i)?.scrollIntoView({ block: 'nearest' });
     }
 
     busy = false;
@@ -683,18 +674,18 @@
     btnGo.disabled    = false;
 
     if (errs === 0) {
-      addLog(`完了！ ${done} ファイルを変換しました。`, 'info');
-      showToast(`${done}ファイルを変換完了！`, 'ok');
+      addLog('完了！ ' + done + ' ファイルを変換しました。', 'info');
+      showToast(done + 'ファイルを変換完了！', 'ok');
     } else {
-      addLog(`完了: ${done} 成功 / ${errs} エラー`, 'err');
-      showToast(`${done}成功 / ${errs}エラー`, 'ng');
+      addLog('完了: ' + done + ' 成功 / ' + errs + ' エラー', 'err');
+      showToast(done + '成功 / ' + errs + 'エラー', 'ng');
     }
   });
 
   // ── Log ────────────────────────────────────────────
   function addLog(msg, cls = '') {
     const d = document.createElement('div');
-    d.className = `log-line ${cls}`;
+    d.className = 'log-line ' + cls;
     d.textContent = msg;
     logEl.appendChild(d);
     logEl.scrollTop = logEl.scrollHeight;
@@ -711,12 +702,11 @@
   let toastT;
   function showToast(msg, cls = '') {
     toast.textContent = msg;
-    toast.className = `toast ${cls} show`;
+    toast.className = 'toast ' + cls + ' show';
     clearTimeout(toastT);
-    toastT = setTimeout(() => { toast.className = `toast ${cls}`; }, 3000);
+    toastT = setTimeout(() => { toast.className = 'toast ' + cls; }, 3000);
   }
 
-  // ── Util ───────────────────────────────────────────
   function esc(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
