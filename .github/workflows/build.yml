@@ -3,8 +3,8 @@ name: Build
 on:
   push:
     tags:
-      - 'v*'          # v1.0.0 のようなタグをプッシュしたときにビルド
-  workflow_dispatch:  # GitHub画面から手動実行も可能
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,18 +21,15 @@ jobs:
     name: Build (${{ matrix.label }})
 
     steps:
-      # ── ソースを取得 ──────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Node.js ───────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      # ── Rust ──────────────────────────────────────
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -46,23 +43,36 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: brew install cmake pkg-config libheif
 
-      # ── libheif (Windows) — vcpkg ─────────────────
+      # ── libheif (Windows) ─────────────────────────
       - name: Install libheif (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          vcpkg install libheif:x64-windows
+          $env:VCPKG_ROOT = "C:/vcpkg"
+          echo "VCPKG_ROOT=C:/vcpkg" >> $env:GITHUB_ENV
+          C:/vcpkg/vcpkg.exe integrate install
+          C:/vcpkg/vcpkg.exe install libheif:x64-windows
           echo "LIBHEIF_DIR=C:/vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
-          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "C:/vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
 
-      # ── npm install ───────────────────────────────
       - name: Install npm dependencies
         run: npm install
 
-      # ── Tauri ビルド ──────────────────────────────
-      - name: Build Tauri app
+      # ── Tauri ビルド (macOS) ──────────────────────
+      - name: Build Tauri app (macOS)
+        if: matrix.os == 'macos-latest'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Tauri ビルド (Windows) ────────────────────
+      - name: Build Tauri app (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VCPKG_ROOT: C:/vcpkg
+          LIBHEIF_DIR: C:/vcpkg/installed/x64-windows
 
       # ── 成果物をアップロード (macOS) ──────────────
       - name: Upload macOS artifact
