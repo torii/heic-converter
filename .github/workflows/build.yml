@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:/vcpkg/installed
-          key: vcpkg-libheif-x64-windows-static-md-${{ hashFiles('**/Cargo.toml') }}
+          key: vcpkg-libheif-${{ runner.os }}-static-md
 
       - name: Install libheif (Windows)
         if: matrix.os == 'windows-latest'
@@ -96,12 +96,11 @@ jobs:
           if-no-files-found: warn
 
       # ── 成果物をアップロード (Windows) ────────────
-      - name: Upload Windows artifact
+      # 単体EXE（インストール不要）をアップロード
+      - name: Upload Windows artifact (portable EXE)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: HEIC-Converter-Windows
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
+          name: HEIC-Converter-Windows-portable
+          path: src-tauri/target/release/heic-converter.exe
           if-no-files-found: warn
