@@ -426,6 +426,19 @@
 </style>
 </head>
 <body>
+<div id="errdiv" style="position:fixed;bottom:0;left:0;right:0;background:red;color:white;font-size:11px;padding:4px;z-index:9999;display:none;white-space:pre-wrap;max-height:120px;overflow:auto"></div>
+<script>
+window.onerror = (msg,src,line,col,err) => {
+  var d = document.getElementById('errdiv');
+  d.style.display='block';
+  d.textContent += '[ERROR] '+msg+' ('+line+':'+col+')\n';
+};
+window.onunhandledrejection = (e) => {
+  var d = document.getElementById('errdiv');
+  d.style.display='block';
+  d.textContent += '[REJECT] '+e.reason+'\n';
+};
+</script>
 <div class="app">
 
   <!-- Header -->
@@ -501,8 +514,24 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module">
-  const { invoke } = window.__TAURI__.core;
+<script>
+  window.addEventListener('DOMContentLoaded', async () => {
+  // Tauri v2: invoke を取得（複数の場所を試みる）
+  for (let i = 0; i < 50; i++) {
+    if (window.__TAURI_INTERNALS__?.invoke ||
+        window.__TAURI__?.core?.invoke ||
+        window.__TAURI__?.tauri?.invoke) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  const invoke = window.__TAURI_INTERNALS__?.invoke
+    || window.__TAURI__?.core?.invoke
+    || window.__TAURI__?.tauri?.invoke;
+  if (!invoke) {
+    document.getElementById('errdiv').style.display = 'block';
+    document.getElementById('errdiv').textContent = 'Tauri invoke が見つかりません: ' + JSON.stringify(Object.keys(window).filter(k => k.includes('TAURI')));
+    return;
+  }
+
 
   // ── State ──────────────────────────────────────────
   let files = [];
@@ -536,10 +565,10 @@
   dz.addEventListener('dragleave', () => dz.classList.remove('over'));
   dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); });
 
-  // Tauri v2 ネイティブD&D
+  // Tauri v2 ネイティブD&D（awaitを使わずPromiseで処理）
   try {
     const { getCurrentWindow } = window.__TAURI__.window;
-    await getCurrentWindow().onDragDropEvent((event) => {
+    getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type === 'over') {
         dz.classList.add('over');
       } else if (event.payload.type === 'drop') {
@@ -550,7 +579,7 @@
       } else {
         dz.classList.remove('over');
       }
-    });
+    }).catch(e => console.warn('onDragDropEvent unavailable:', e));
   } catch(e) {
     console.warn('onDragDropEvent unavailable:', e);
   }
@@ -558,10 +587,13 @@
   // ── File picker ────────────────────────────────────
   btnPick.addEventListener('click', async () => {
     try {
-      const { open: dialogOpen } = window.__TAURI__.dialog;
-      const sel = await dialogOpen({
-        multiple: true,
-        filters: [{ name: 'HEIC Images', extensions: ['heic', 'HEIC'] }]
+      // dialogOpenが取得できない場合はTAURIの構造をログ表示
+      // Tauri v2: plugin-dialog を invoke 経由で直接呼び出す
+      const sel = await invoke('plugin:dialog|open', {
+        options: {
+          multiple: true,
+          filters: [{ name: 'HEIC Images', extensions: ['heic', 'HEIC'] }]
+        }
       });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
@@ -570,6 +602,7 @@
       addLog('ダイアログエラー: ' + e, 'err');
     }
   });
+
 
   // ── Add files ──────────────────────────────────────
   function addPaths(paths) {
@@ -653,6 +686,7 @@
         });
         if (res.success) {
           setStatus(i, 'done'); done++;
+          files[i].outputDir = outputDir;
           addLog('✓ ' + f.name, 'ok');
         } else {
           setStatus(i, 'error'); errs++;
@@ -673,12 +707,22 @@
     btnGo.textContent = '変換開始';
     btnGo.disabled    = false;
 
+    // 出力フォルダのパスを収集（最初の成功ファイルから）
+    const outDirs = [...new Set(files
+      .filter(f => f.status === 'done' && f.outputDir)
+      .map(f => f.outputDir))];
+
     if (errs === 0) {
       addLog('完了！ ' + done + ' ファイルを変換しました。', 'info');
       showToast(done + 'ファイルを変換完了！', 'ok');
     } else {
       addLog('完了: ' + done + ' 成功 / ' + errs + ' エラー', 'err');
       showToast(done + '成功 / ' + errs + 'エラー', 'ng');
+    }
+
+    // 出力フォルダリンクを表示
+    for (const dir of outDirs) {
+      addLogLink('📁 ' + dir, dir);
     }
   });
 
@@ -687,6 +731,23 @@
     const d = document.createElement('div');
     d.className = 'log-line ' + cls;
     d.textContent = msg;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function addLogLink(label, dirPath) {
+    const d = document.createElement('div');
+    d.className = 'log-line info';
+    d.style.cursor = 'pointer';
+    d.style.textDecoration = 'underline';
+    d.textContent = label;
+    d.addEventListener('click', () => {
+      // Tauri v2: ローカルフォルダをFinderで開く
+      invoke('plugin:opener|open_path', { path: dirPath }).catch(() => {
+        // フォールバック: shell経由
+        invoke('plugin:shell|open', { path: 'file://' + dirPath });
+      });
+    });
     logEl.appendChild(d);
     logEl.scrollTop = logEl.scrollHeight;
   }
@@ -710,6 +771,7 @@
   function esc(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
+  }); // end DOMContentLoaded
 </script>
 </body>
 </html>
